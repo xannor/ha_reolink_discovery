@@ -1,0 +1,31 @@
+{
+  "title": "Reolink Discovery",
+  "config": {
+    "step": {
+      "user": {}
+    },
+    "error": {
+      "public-address": "Only the known private range IP addresses are supported",
+      "invalid-address": "Only valid IPV4 broadcast addresses are supported"
+    },
+    "abort": {
+      "already_configured": "Only one instance of discovery can exists at a time"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Discovery Options",
+        "description": "",
+        "data": {
+          "scan_interval": "Ping interval",
+          "broadcast_addr": "Broadcast Address"
+        },
+        "data_description": {
+          "scan_interval": "How often to poll the network for devices",
+          "broadcast_addr": "optional network IP address to broadcast to when it cannot be determined automatically by the system"
+        }
+      }
+    }
+  }
+}

@@ -4,19 +4,27 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 import logging
 
-from homeassistant.core import HomeAssistant, CALLBACK_TYPE
+from homeassistant.core import HomeAssistant, CALLBACK_TYPE, Event, callback
 from homeassistant import config_entries
 from homeassistant.components.network import async_get_ipv4_broadcast_addresses
 from homeassistant.util import dt
 from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.discovery import discover, async_listen
+from homeassistant.loader import async_get_custom_components
 
 from homeassistant.const import CONF_SCAN_INTERVAL
 
-from .typing import DiscoveredDevice as BaseDiscoveredDevice
+from .typing import DiscoveredDevice
 
 from .discovery import DiscoveryProtocol, async_listen, async_ping
 
-from .const import CONF_BROADCAST, DEFAULT_SCAN_INTERVAL, DOMAIN
+from .const import (
+    CONF_BROADCAST,
+    CONF_COMPONENT,
+    DEFAULT_SCAN_INTERVAL,
+    DOMAIN,
+    SUPPORTED_INTEGRATIONS,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -39,6 +47,10 @@ class _Ping:
         for addr in self._broadcast:
             async_ping(addr)
 
+    async def refresh(self):
+        """Refresh discovery"""
+        await self._ping()
+
     async def _update(self, hass: HomeAssistant, entry: config_entries.ConfigEntry):
         addr = entry.options.get(CONF_BROADCAST, None)
 
@@ -58,15 +70,35 @@ class _Ping:
             await self._ping()
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: config_entries.ConfigEntry):
+async def async_setup(hass: HomeAssistant, config: config_entries.ConfigType) -> bool:
     """Setup ReoLink Discovery Component"""
 
-    _LOGGER.debug("Setting up reolink discovery component")
+    hass.data[DOMAIN] = config
 
-    (transport, _) = await async_listen(__type=_Discoverer, logger=_LOGGER, hass=hass)
+    return True
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: config_entries.ConfigEntry):
+    """Setup ReoLink Discovery Component Entry"""
+    _LOGGER.debug("Setting up reolink discovery component")
+    hass_config = hass.data.pop(DOMAIN)
+
+    components = list(
+        domain
+        for domain in await async_get_custom_components(hass)
+        if domain in SUPPORTED_INTEGRATIONS
+    )
+    if CONF_COMPONENT not in entry.options and len(components) == 1:
+        options = entry.options.copy()
+        options[CONF_COMPONENT] = components[0]
+        hass.config_entries.async_update_entry(entry, options=options)
+
+    (transport, _) = await async_listen(
+        __type=_Discoverer, logger=_LOGGER, hass=hass, hass_config=hass_config
+    )
     entry.async_on_unload(transport.close)
 
-    _Ping(hass, entry)
+    pinger = _Ping(hass, entry)
 
     return True
 
@@ -77,30 +109,19 @@ async def async_remove_entry(hass: HomeAssistant, _: config_entries.ConfigEntry)
     hass.data.popitem(DOMAIN, None)
 
 
-@dataclass
-class DiscoveredDevice:
-    """Discovered Device with discovery information"""
-
-    device: BaseDiscoveredDevice
-    first_seen: datetime = field(default_factory=dt.utcnow)
-    last_update: datetime = field(default_factory=dt.utcnow)
-    last_seen: datetime = field(default_factory=dt.utcnow)
-
-    def __eq__(self, __o: object) -> bool:
-        if isinstance(__o, DiscoveredDevice):
-            return self.device.same_as(__o.device)
-        return self.device.same_as(__o)
-
-    def __hash__(self):
-        return self.device.simple_hash()
-
-
 class _Discoverer(DiscoveryProtocol):
-    def __init__(self, *, hass: HomeAssistant, **kwargs) -> None:
+    def __init__(
+        self, *, hass: HomeAssistant, hass_config: config_entries.ConfigType, **kwargs
+    ) -> None:
         super().__init__(**kwargs)
         self.hass = hass
+        self._hass_config = hass_config
+        self.config_entry: config_entries.ConfigEntry = (
+            config_entries.current_entry.get()
+        )
 
-    def discovered_device(self, device: BaseDiscoveredDevice) -> None:
+    def discovered_device(self, device: DiscoveredDevice) -> None:
         super().discovered_device(device)
         data = asdict(device)
-        self.hass.bus.async_fire(DOMAIN, data)
+        component: str = self.config_entry.options.get(CONF_COMPONENT, None)
+        discover(self.hass, DOMAIN, data, component, self._hass_config)

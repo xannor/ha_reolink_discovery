@@ -9,7 +9,7 @@ from homeassistant.components.network import async_get_ipv4_broadcast_addresses
 
 from homeassistant.const import CONF_SCAN_INTERVAL
 
-from .const import CONF_BROADCAST, DEFAULT_SCAN_INTERVAL, DOMAIN
+from .const import CONF_BROADCAST, CONF_COMPONENT, DEFAULT_SCAN_INTERVAL, DOMAIN
 
 _NETWORKS: list[
     ipaddress.IPv4Network
@@ -98,6 +98,10 @@ class ReolinkDiscoveryOptionsFlow(config_entries.OptionsFlow):
                         CONF_BROADCAST,
                         default=user_input.get(CONF_BROADCAST, addr),
                     ): vol.All(vol.Coerce(str), vol.Length(min=7, max=16)),
+                    vol.Optional(
+                        CONF_COMPONENT,
+                        default=user_input.get(CONF_COMPONENT, vol.UNDEFINED),
+                    ): str,
                 }
             ),
             errors=errors,

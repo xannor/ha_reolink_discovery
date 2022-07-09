@@ -1,5 +1,6 @@
 Developer information
 
+<del>
 The current output of the component is a follows
 
 ```
@@ -14,6 +15,22 @@ The current output of the component is a follows
     },
 }
 ```
+</del>
+
+Update: the component has been re-worked to use the discovery helper and dispatching instead of events, this should be lower overhread as no dict->json->dict conversion will be happening. the data poriton is the same and the service is "reolink_discovery"
+use
+```
+homeassistant.helpers.discovery.async_listener("reolink_discovery", __callback)
+```
+here callback is
+```
+async def __callback(service:str, info:DiscoveryIntoType)->None:
+```
+set this up in async_setup to make sure it is loaded as soon as the component is.
+
+I also added an option for a notifier, the name entered into this option is the component that will be notified on each event.
+This means that in the discovery system will attemp to load that component before dispatch.
+/:Update
 
 the python typedef for the above data block is:
 

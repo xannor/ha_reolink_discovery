@@ -19,7 +19,8 @@
         "description": "",
         "data": {
           "scan_interval": "Ping interval",
-          "broadcast_addr": "Broadcast Address"
+          "broadcast_addr": "Broadcast Address",
+          "notify_component": "Component to notify"
         },
         "data_description": {
           "scan_interval": "How often to poll the network for devices",

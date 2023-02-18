@@ -90,17 +90,25 @@ class ReolinkDiscoveryOptionsFlow(config_entries.OptionsFlow):
                 {
                     vol.Optional(
                         CONF_SCAN_INTERVAL,
-                        default=user_input.get(
-                            CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
-                        ),
+                        description={
+                            "suggested_value": user_input.get(
+                                CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
+                            )
+                        },
                     ): vol.All(vol.Coerce(int), vol.Range(min=1)),
                     vol.Optional(
                         CONF_BROADCAST,
-                        default=user_input.get(CONF_BROADCAST, addr),
+                        description={
+                            "suggested_value": user_input.get(CONF_BROADCAST, addr)
+                        },
                     ): vol.All(vol.Coerce(str), vol.Length(min=7, max=16)),
                     vol.Optional(
                         CONF_COMPONENT,
-                        default=user_input.get(CONF_COMPONENT, vol.UNDEFINED),
+                        description={
+                            "suggested_value": user_input.get(
+                                CONF_COMPONENT, vol.UNDEFINED
+                            )
+                        },
                     ): str,
                 }
             ),

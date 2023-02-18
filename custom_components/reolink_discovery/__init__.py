@@ -3,14 +3,21 @@
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 import logging
+from typing import TYPE_CHECKING
 
 from homeassistant.core import HomeAssistant, CALLBACK_TYPE, Event, callback
 from homeassistant import config_entries
 from homeassistant.components.network import async_get_ipv4_broadcast_addresses
 from homeassistant.util import dt
 from homeassistant.helpers.event import async_track_time_interval
-from homeassistant.helpers.discovery import discover, async_listen
 from homeassistant.loader import async_get_custom_components
+
+if TYPE_CHECKING:
+    from homeassistant.helpers import (
+        discovery as helper_discovery,
+        discovery_flow as helper_discovery_flow,
+    )
+from ._utilities.hass_typing import hass_bound
 
 from homeassistant.const import CONF_SCAN_INTERVAL
 
@@ -81,7 +88,7 @@ async def async_setup(hass: HomeAssistant, config: config_entries.ConfigType) ->
 async def async_setup_entry(hass: HomeAssistant, entry: config_entries.ConfigEntry):
     """Setup ReoLink Discovery Component Entry"""
     _LOGGER.debug("Setting up reolink discovery component")
-    hass_config = hass.data.pop(DOMAIN)
+    hass_config = hass.data.get(DOMAIN)
 
     components = list(
         domain
@@ -103,10 +110,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: config_entries.ConfigEnt
     return True
 
 
-async def async_remove_entry(hass: HomeAssistant, _: config_entries.ConfigEntry):
-    """Remove entry"""
-
-    hass.data.popitem(DOMAIN, None)
+# async def async_remove_entry(hass: HomeAssistant, _: config_entries.ConfigEntry):
+#     """Remove entry"""
 
 
 class _Discoverer(DiscoveryProtocol):
@@ -124,4 +129,11 @@ class _Discoverer(DiscoveryProtocol):
         super().discovered_device(device)
         data = asdict(device)
         component: str = self.config_entry.options.get(CONF_COMPONENT, None)
-        discover(self.hass, DOMAIN, data, component, self._hass_config)
+        discovery: helper_discovery = self.hass.helpers.discovery
+        hass_bound(discovery.discover)(DOMAIN, data, component, self._hass_config)
+        discovery_flow: helper_discovery_flow = self.hass.helpers.discovery_flow
+        hass_bound(discovery_flow.async_create_flow)(
+            component,
+            {"source": config_entries.SOURCE_DISCOVERY, "provider": DOMAIN},
+            data,
+        )

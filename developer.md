@@ -1,5 +1,21 @@
 Developer information
 
+Update #2:
+
+The discovery signal approach is still valid, but I also added config_flow push discovery as well.
+
+If you add the following to your integration, you can intercept and handle new device discoverys on the users network.
+
+```
+    async def async_step_discovery(self, discovery_info: DiscoveryInfoType):
+        return await super().async_step_discovery(discovery_info)
+
+```
+
+the discovery_info will be a dict that follows the structure of DiscoveredDeviceType below, self.initial_data will also be set to the same dict
+
+----
+
 <del>
 The current output of the component is a follows
 
@@ -17,7 +33,7 @@ The current output of the component is a follows
 ```
 </del>
 
-Update: the component has been re-worked to use the discovery helper and dispatching instead of events, this should be lower overhread as no dict->json->dict conversion will be happening. the data poriton is the same and the service is "reolink_discovery"
+Update: the component has been re-worked to use the discovery helper and dispatching instead of events, this should be lower overhead as no dict->json->dict conversion will be happening. the data poriton is the same and the service is "reolink_discovery"
 use
 ```
 homeassistant.helpers.discovery.async_listener("reolink_discovery", __callback)

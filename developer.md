@@ -1,5 +1,14 @@
 Developer information
 
+Update #3:
+
+Moved discovery config push to two places, async_step_integration_discovery and async_step_dhcp.
+
+Docs point to async_step_discovery being deprecated and the defaults for that and async_step_integration_discovery are the same so the change is simple (just rename the method and create a new functionn for async_step_discovery that calls the integration one)
+
+Added async_step_dhcp (and emulated dhcp push) to support the "official" ReoLink integration without code
+changes to that integration. using async_step_integration_discovery is preferred.
+
 Update #2:
 
 The discovery signal approach is still valid, but I also added config_flow push discovery as well.

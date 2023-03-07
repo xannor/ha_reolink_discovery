@@ -3,7 +3,7 @@
   "name": "Reolink Discovery",
   "documentation": "https://github.com/xannor/ha_reolink_discovery",
   "issue_tracker": "https://github.com/xannor/ha_reolink_discovery/issues",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "iot_class": "local_polling",
   "dependencies": ["network"],
   "codeowners": ["@xannor"],

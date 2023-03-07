@@ -1,23 +1,17 @@
 """Reolink Discovery Component"""
 
-from dataclasses import asdict, dataclass, field
-from datetime import datetime, timedelta
+from dataclasses import asdict
+from datetime import timedelta
 import logging
-from typing import TYPE_CHECKING
 
-from homeassistant.core import HomeAssistant, CALLBACK_TYPE, Event, callback
+from homeassistant.core import HomeAssistant, CALLBACK_TYPE
 from homeassistant import config_entries
 from homeassistant.components.network import async_get_ipv4_broadcast_addresses
-from homeassistant.util import dt
+from homeassistant.helpers.discovery import discover
+from homeassistant.helpers.discovery_flow import async_create_flow
 from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.components import dhcp
 from homeassistant.loader import async_get_custom_components
-
-if TYPE_CHECKING:
-    from homeassistant.helpers import (
-        discovery as helper_discovery,
-        discovery_flow as helper_discovery_flow,
-    )
-from ._utilities.hass_typing import hass_bound
 
 from homeassistant.const import CONF_SCAN_INTERVAL
 
@@ -105,7 +99,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: config_entries.ConfigEnt
     )
     entry.async_on_unload(transport.close)
 
-    pinger = _Ping(hass, entry)
+    # pinger =
+    _Ping(hass, entry)
 
     return True
 
@@ -127,13 +122,18 @@ class _Discoverer(DiscoveryProtocol):
 
     def discovered_device(self, device: DiscoveredDevice) -> None:
         super().discovered_device(device)
+        component: str = self.config_entry.options.get(CONF_COMPONENT, SUPPORTED_INTEGRATIONS[0])
         data = asdict(device)
-        component: str = self.config_entry.options.get(CONF_COMPONENT, None)
-        discovery: helper_discovery = self.hass.helpers.discovery
-        hass_bound(discovery.discover)(DOMAIN, data, component, self._hass_config)
-        discovery_flow: helper_discovery_flow = self.hass.helpers.discovery_flow
-        hass_bound(discovery_flow.async_create_flow)(
+        async_create_flow(
+            self.hass,
             component,
-            {"source": config_entries.SOURCE_DISCOVERY, "provider": DOMAIN},
+            {"source": config_entries.SOURCE_INTEGRATION_DISCOVERY, "provider": DOMAIN},
             data,
+        )
+        discover(self.hass,DOMAIN, data, component, self._hass_config)
+        async_create_flow(
+            self.hass,
+            component,
+            {"source": config_entries.SOURCE_DHCP, "provider": DOMAIN},
+            dhcp.DhcpServiceInfo(device.ip, device.name, device.mac),
         )

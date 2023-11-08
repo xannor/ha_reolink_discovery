@@ -11,7 +11,7 @@
         "module": "homeassistant",
         "justMyCode": false,
         "args": ["--debug", "-c", "config"],
-        "preLaunchTask": "Compile English translations"
+        "preLaunchTask": "Update strings"
       },
       {
         "name": "Home Assistant (skip pip)",
@@ -20,7 +20,7 @@
         "module": "homeassistant",
         "justMyCode": false,
         "args": ["--debug", "-c", "config", "--skip-pip"],
-        "preLaunchTask": "Compile English translations"
+        "preLaunchTask": "Update strings"
       },
       {
         "name": "Home Assistant: Changed tests",
@@ -62,4 +62,3 @@
       }
     ]
   }
-  

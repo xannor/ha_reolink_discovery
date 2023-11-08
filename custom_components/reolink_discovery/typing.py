@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Final, Protocol, TypedDict
+from dataclasses import asdict, dataclass, field
+from typing import Any, TypedDict
 from typing_extensions import NotRequired
+
+from homeassistant.components.dhcp import DhcpServiceInfo
+#from typing import Final, Protocol, TypedDict
 
 
 def _istr(value: any):
@@ -13,49 +16,43 @@ def _istr(value: any):
     return str(value).lower()
 
 
-@dataclass(frozen=True)
-class DiscoveredDevice:
-    """Discovered Device"""
+class ReolinkDiscoveryInfoType(TypedDict):
+    """Typed dictionary of prepared info from Reolink discovery"""
 
-    class JSON(TypedDict):
-        """JSON"""
+    ip: str
+    macaddess: str
+    hostname: NotRequired[str]
+    uuid: NotRequired[str]
+    ident: NotRequired[str]
 
-        ip: str
-        mac: str
-        name: NotRequired[str]
-        ident: NotRequired[str]
-        uuid: NotRequired[str]
+@dataclass(slots=True)
+class ReolinkDiscoveryInfo(DhcpServiceInfo):
+    """Prepared info from Reolink discovery"""
 
-    class Keys(Protocol):
-        """Keys"""
-
-        ip: Final = "ip"
-        mac: Final = "mac"
-        name: Final = "name"
-        ident: Final = "ident"
-        uuid: Final = "uuid"
-
-    ip: str  # pylint: disable=invalid-name
-    mac: str
-    name: str | None = field(default=None)
-    ident: str | None = field(default=None)
     uuid: str | None = field(default=None)
+    ident: str | None = field(default=None)
 
-    def __post_init__(self):
-        object.__setattr__(self, self.Keys.mac, _istr(self.mac))
-        object.__setattr__(self, self.Keys.uuid, _istr(self.uuid))
+    def same_as(self, other: Any):
+        """compare to another info object"""
 
-    def same_as(self, other: DiscoveredDevice | JSON):
-        """simple comparison"""
         if isinstance(other, dict):
-            return (
-                self.uuid is not None and self.uuid == _istr(other.get(self.Keys.uuid, None))
-            ) or self.mac == _istr(other.get(self.Keys.mac, None))
+            _other: ReolinkDiscoveryInfoType = other
+            _hash = self.simple_hash(_other["macaddess"], _other.get("uuid"))
+        elif not isinstance(other, ReolinkDiscoveryInfo):
+            return False
+        else:
+            _hash = self.simple_hash(other.macaddress, other.uuid)
 
-        return (self.uuid is not None and self.uuid == other.uuid) or self.mac == other.mac
+        return self.simple_hash(self.macaddress, self.uuid) == _hash
 
-    def simple_hash(self):
-        """hash based off of same_as rules"""
-        if self.uuid is not None:
-            return hash(self.uuid)
-        return hash(self.mac)
+    def asdict(self)->ReolinkDiscoveryInfoType:
+        """Return as TypedDict"""
+        return asdict(self)
+
+    @staticmethod
+    def simple_hash(macaddress:str, uuid:str|None=None):
+        """simple hash method"""
+
+        if uuid is not None:
+            return hash(uuid.lower())
+        return hash(macaddress.lower())

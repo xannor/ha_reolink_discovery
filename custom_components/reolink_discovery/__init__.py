@@ -1,6 +1,5 @@
 """Reolink Discovery Component"""
 
-from dataclasses import asdict
 from datetime import timedelta
 import logging
 
@@ -10,19 +9,19 @@ from homeassistant.components.network import async_get_ipv4_broadcast_addresses
 from homeassistant.helpers.discovery import discover
 from homeassistant.helpers.discovery_flow import async_create_flow
 from homeassistant.helpers.event import async_track_time_interval
-from homeassistant.components import dhcp
-from homeassistant.loader import async_get_custom_components
 
 from homeassistant.const import CONF_SCAN_INTERVAL
 
-from .typing import DiscoveredDevice
+from .typing import ReolinkDiscoveryInfo
 
-from .discovery import DiscoveryProtocol, async_listen, async_ping
+from .core import ReolinkDiscoveryProtocol
 
 from .const import (
     CONF_BROADCAST,
     CONF_COMPONENT,
+    DEFAULT_INTEGRATION,
     DEFAULT_SCAN_INTERVAL,
+    DHCP_INTEGRATIONS,
     DOMAIN,
     SUPPORTED_INTEGRATIONS,
 )
@@ -34,41 +33,6 @@ def async_get_poll_interval(config_entry: config_entries.ConfigEntry):
     """Get the poll interval"""
     interval = config_entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
     return timedelta(seconds=interval)
-
-
-class _Ping:
-    def __init__(self, hass: HomeAssistant, entry: config_entries.ConfigEntry) -> None:
-        self._interval: timedelta = None
-        self._broadcast: list[str] = None
-        self._cleanup: CALLBACK_TYPE = None
-        hass.create_task(self._update(hass, entry))
-        entry.async_on_unload(entry.add_update_listener(self._update))
-
-    async def _ping(self, *_):
-        for addr in self._broadcast:
-            async_ping(addr)
-
-    async def refresh(self):
-        """Refresh discovery"""
-        await self._ping()
-
-    async def _update(self, hass: HomeAssistant, entry: config_entries.ConfigEntry):
-        addr = entry.options.get(CONF_BROADCAST, None)
-
-        if addr and (not self._broadcast or self._broadcast[0] != addr):
-            self._broadcast = [addr]
-        elif not addr or not self._broadcast:
-            self._broadcast = list(
-                (str(addr) for addr in await async_get_ipv4_broadcast_addresses(hass))
-            )
-        interval = async_get_poll_interval(entry)
-        if interval != self._interval:
-            if self._cleanup:
-                self._cleanup()
-            self._interval = interval
-            self._cleanup = async_track_time_interval(hass, self._ping, self._interval)
-            entry.async_on_unload(self._cleanup)
-            await self._ping()
 
 
 async def async_setup(hass: HomeAssistant, config: config_entries.ConfigType) -> bool:
@@ -84,56 +48,63 @@ async def async_setup_entry(hass: HomeAssistant, entry: config_entries.ConfigEnt
     _LOGGER.debug("Setting up reolink discovery component")
     hass_config = hass.data.get(DOMAIN)
 
-    components = list(
-        domain
-        for domain in await async_get_custom_components(hass)
-        if domain in SUPPORTED_INTEGRATIONS
-    )
-    if CONF_COMPONENT not in entry.options and len(components) == 1:
-        options = entry.options.copy()
-        options[CONF_COMPONENT] = components[0]
-        hass.config_entries.async_update_entry(entry, options=options)
+    def _discovered(device:ReolinkDiscoveryInfo):
+        component: str = entry.options.get(CONF_COMPONENT, DEFAULT_INTEGRATION)
+        if component in SUPPORTED_INTEGRATIONS:
+            async_create_flow(hass, component, {"source": config_entries.SOURCE_INTEGRATION_DISCOVERY, "provider": DOMAIN}, device)
+        elif component in DHCP_INTEGRATIONS:
+            async_create_flow(hass, component, {"source": config_entries.SOURCE_DHCP, "provider": DOMAIN}, device)
+        else:
+            discover(hass, DOMAIN, device.asdict(), component, hass_config)
 
-    (transport, _) = await async_listen(
-        __type=_Discoverer, logger=_LOGGER, hass=hass, hass_config=hass_config
-    )
-    entry.async_on_unload(transport.close)
+    (transport, discovery) = await ReolinkDiscoveryProtocol.async_create_listener(_discovered, logger=_LOGGER)
 
-    # pinger =
-    _Ping(hass, entry)
+    broadcast:list[str] = []
+    interval = timedelta()
+    time_cleanup: CALLBACK_TYPE = None
+
+    def _ping(*_):
+        for addr in broadcast:
+            discovery.async_ping(addr)
+
+    async def _update(hass: HomeAssistant, entry: config_entries.ConfigEntry):
+        nonlocal broadcast, interval, time_cleanup
+
+        addr = entry.options.get(CONF_BROADCAST, None)
+
+        if addr and (not broadcast or broadcast[0] != addr):
+            broadcast = [addr]
+        elif not addr or not broadcast:
+            broadcast = list(
+                (str(addr) for addr in await async_get_ipv4_broadcast_addresses(hass))
+            )
+        poll = async_get_poll_interval(entry)
+        if interval != poll:
+            if time_cleanup:
+                time_cleanup()
+            interval = poll
+            time_cleanup = async_track_time_interval(hass, _ping, interval)
+            _ping()
+
+    update_cleanup = entry.add_update_listener(_update)
+
+    def _unload():
+        nonlocal transport, update_cleanup
+        if transport:
+            transport.close()
+        transport = None
+        if time_cleanup:
+            time_cleanup()
+        time_cleanup = None
+        if update_cleanup:
+            update_cleanup()
+        update_cleanup = None
+
+    entry.async_on_unload(_unload)
+
+    await _update(hass, entry)
 
     return True
 
-
 # async def async_remove_entry(hass: HomeAssistant, _: config_entries.ConfigEntry):
 #     """Remove entry"""
-
-
-class _Discoverer(DiscoveryProtocol):
-    def __init__(
-        self, *, hass: HomeAssistant, hass_config: config_entries.ConfigType, **kwargs
-    ) -> None:
-        super().__init__(**kwargs)
-        self.hass = hass
-        self._hass_config = hass_config
-        self.config_entry: config_entries.ConfigEntry = (
-            config_entries.current_entry.get()
-        )
-
-    def discovered_device(self, device: DiscoveredDevice) -> None:
-        super().discovered_device(device)
-        component: str = self.config_entry.options.get(CONF_COMPONENT, SUPPORTED_INTEGRATIONS[0])
-        data = asdict(device)
-        async_create_flow(
-            self.hass,
-            component,
-            {"source": config_entries.SOURCE_INTEGRATION_DISCOVERY, "provider": DOMAIN},
-            data,
-        )
-        discover(self.hass,DOMAIN, data, component, self._hass_config)
-        async_create_flow(
-            self.hass,
-            component,
-            {"source": config_entries.SOURCE_DHCP, "provider": DOMAIN},
-            dhcp.DhcpServiceInfo(device.ip, device.name, device.mac),
-        )

@@ -1,15 +1,14 @@
-"""Reolink Discovery"""
+"""Core implementation"""
 
 from __future__ import annotations
 
-import asyncio
+from asyncio import DatagramProtocol, DatagramTransport, get_event_loop
 import logging
 import socket
 from struct import pack
-from typing import Final, TypeVar
+from typing import Callable, Final
 
-from .typing import DiscoveredDevice
-
+from .typing import ReolinkDiscoveryInfo
 
 PORT: Final = 3000
 PING: Final = 2000
@@ -27,17 +26,20 @@ def _nulltermstring(value: bytes, offset: int, maxlength: int = None) -> str | N
     return value[offset:idx].decode("ascii")
 
 
-class DiscoveryProtocol(asyncio.DatagramProtocol):
+DISCOVERY_CALLBACK = Callable[[ReolinkDiscoveryInfo],None]
+
+class ReolinkDiscoveryProtocol(DatagramProtocol):
     """UDP Discovery Protocol"""
 
     def __init__(
-        self, *, logger: logging.Logger = None, ping_message: bytes = PING_MESSAGE
+        self, *, callback:DISCOVERY_CALLBACK = None, logger: logging.Logger = None, ping_message: bytes = PING_MESSAGE
     ) -> None:
         self._logger = logger
-        self._transport: asyncio.transports.DatagramTransport = None
+        self._transport: DatagramTransport = None
         self._reply_verify = ping_message
+        self._callback = callback
 
-    def connection_made(self, transport: asyncio.transports.DatagramTransport) -> None:
+    def connection_made(self, transport: DatagramTransport) -> None:
         self._transport = transport
         if self._logger:
             self._logger.debug(
@@ -81,51 +83,41 @@ class DiscoveryProtocol(asyncio.DatagramProtocol):
             data[244:].strip(b"\0").rstrip(b"\0"),
         )
 
-        message = DiscoveredDevice(
+        self._discovery_callback(ReolinkDiscoveryInfo(
             ip=_nulltermstring(data, 108, 20),
-            mac=_nulltermstring(data, 164, 18) or data[80:86].hex(":").upper(),
-            name=_nulltermstring(data, 132, 32),
+            macaddress=_nulltermstring(data, 164, 18) or data[80:86].hex(":"),
+            hostname=_nulltermstring(data, 132, 32) or "",
             ident=_nulltermstring(data, 58, 18),
             uuid=_nulltermstring(data, 228, 32),
-        )
+        ))
 
-        self.discovered_device(message)
-
-    def discovered_device(self, device: DiscoveredDevice) -> None:
-        """Called when a device is discovered"""
+    def _discovery_callback(self, device: ReolinkDiscoveryInfo) -> None:
         if self._logger:
             self._logger.debug("Discovered %s", device)
+        if self._callback:
+            self._callback(device)
 
+    @classmethod
+    async def async_create_listener(cls, discovered:DISCOVERY_CALLBACK=None, address:str = "0.0.0.0", port:int = PORT, logger:logging.Logger=None, **kwargs):
+        """Create Discovery listener"""
 
-_T = TypeVar("_T", bound=DiscoveryProtocol)
+        if logger:
+            logger.debug("Listening on %s", address)
 
+        def _factory():
+            return cls(logger=logger, callback=discovered, **kwargs)
 
-async def async_listen(
-    *,
-    __type: type[_T] = DiscoveryProtocol,
-    logger: logging.Logger = None,
-    address: str = "0.0.0.0",
-    port: int = PORT,
-    **kwargs,
-):
-    """Create discovery listener"""
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setblocking(False)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind((address, port))
+        return await get_event_loop().create_datagram_endpoint(_factory, sock=sock)
 
-    if logger:
-        logger.debug("Listening on %s", address)
+    @staticmethod
+    def async_ping(address: str = "255.255.255.255", port: int = PING):
+        """Send discovery ping to network"""
 
-    def _factory():
-        return __type(logger=logger, **kwargs)
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        return sock.sendto(PING_MESSAGE, (address, port))
 
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.setblocking(False)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.bind((address, port))
-    return await asyncio.get_event_loop().create_datagram_endpoint(_factory, sock=sock)
-
-
-def async_ping(address: str = "255.255.255.255", port: int = PING):
-    """Send disocvery ping to network"""
-
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-    sock.sendto(PING_MESSAGE, (address, port))
